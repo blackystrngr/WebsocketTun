@@ -29,8 +29,8 @@ async def run():
             sys.exit(1)
 
     proxy = SSHWebSocketProxy(
-        ws_port=config.get("ws_port", 8080),
-        tls_port=config.get("tls_port", 8443),
+        ws_ports=config.get("ws_ports", [8080]),
+        tls_ports=config.get("tls_ports", [8443]),
         ssh_host=config.get("ssh_host", "127.0.0.1"),
         ssh_port=config.get("ssh_port", 22),
         ssl_cert=cert_path,
@@ -47,18 +47,17 @@ async def run():
     # Console handler – only if stdin is a TTY (i.e., not running as a service)
     console_task = None
     if sys.stdin.isatty():
-        # Shutdown callback to cancel everything
         async def shutdown():
             proxy_task.cancel()
             updater_task.cancel()
-            console_task.cancel()  # not needed but safe
+            if console_task:
+                console_task.cancel()
         console = ConsoleHandler(shutdown_callback=shutdown)
         console_task = asyncio.create_task(console.run())
     else:
         print("No TTY detected – console disabled. (Running as service?)")
 
     try:
-        # Wait for all tasks; if one fails, we'll cancel others
         tasks = [proxy_task, updater_task]
         if console_task:
             tasks.append(console_task)
@@ -68,11 +67,9 @@ async def run():
     except KeyboardInterrupt:
         print("\nInterrupted. Shutting down...")
     finally:
-        # Cancel any remaining tasks
         for task in tasks:
             if not task.done():
                 task.cancel()
-        # Wait for cancellation to complete
         await asyncio.gather(*tasks, return_exceptions=True)
         print("Goodbye.")
 
