@@ -41,6 +41,12 @@ echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
 
 pip3 install -r requirements.txt
 
+# Install acme.sh (with nocron)
+if [ ! -f /root/.acme.sh/acme.sh ]; then
+    _info "Installing acme.sh..."
+    curl -s https://get.acme.sh | sh -s -- --nocron
+fi
+
 # Certificate source
 echo -e "${YELLOW}Select certificate source:${NC}"
 echo "  1) Cloudflare Origin Certificate (you provide PEM and KEY files)"
