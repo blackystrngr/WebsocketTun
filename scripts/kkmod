@@ -1,3 +1,4 @@
 #!/bin/bash
+# kkmod – dashboard launcher
 cd "$(dirname "$0")/.." || exit
 python3 -c "from src.dashboard import main; main()"
