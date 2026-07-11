@@ -16,15 +16,11 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# ------------------------------------------------------------------
-# 1. Install system packages
-# ------------------------------------------------------------------
+# System packages
 apt update
 apt install -y python3 python3-pip curl git openssl iptables iptables-persistent
 
-# ------------------------------------------------------------------
-# 2. Disable IPv6 (system-wide)
-# ------------------------------------------------------------------
+# Disable IPv6
 echo -e "${YELLOW}Disabling IPv6...${NC}"
 cat >> /etc/sysctl.conf <<EOF
 net.ipv6.conf.all.disable_ipv6 = 1
@@ -40,20 +36,14 @@ GRUB_CMDLINE_LINUX="ipv6.disable=1"
 EOF
 update-grub
 
-# ------------------------------------------------------------------
-# 3. Enable IP forwarding
-# ------------------------------------------------------------------
+# IP forwarding
 sysctl -w net.ipv4.ip_forward=1
 echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
 
-# ------------------------------------------------------------------
-# 4. Install Python dependencies
-# ------------------------------------------------------------------
+# Python deps
 pip3 install -r requirements.txt
 
-# ------------------------------------------------------------------
-# 5. Ask certificate source FIRST
-# ------------------------------------------------------------------
+# Certificate source
 echo -e "${YELLOW}Select certificate source:${NC}"
 echo "  1) Cloudflare Origin Certificate (you provide PEM and KEY files)"
 echo "  2) ACME (Let's Encrypt) via Cloudflare DNS (automated)"
@@ -67,38 +57,28 @@ CF_TOKEN=""
 
 if [ "$CERT_CHOICE" = "1" ]; then
     CERT_SOURCE="cloudflare"
-    echo -e "${YELLOW}Provide paths to your Cloudflare Origin Certificate files:${NC}"
     read -p "Path to certificate PEM file: " CERT_FILE
     read -p "Path to private key file: " KEY_FILE
     if [ ! -f "$CERT_FILE" ] || [ ! -f "$KEY_FILE" ]; then
         echo -e "${RED}Certificate or key file not found.${NC}"
         exit 1
     fi
-    echo -e "${GREEN}Using Cloudflare Origin Certificate.${NC}"
 else
     CERT_SOURCE="acme"
-    echo -e "${YELLOW}Provide Cloudflare credentials for ACME (Let's Encrypt):${NC}"
     read -p "Your Cloudflare account email: " EMAIL
     read -p "Your Cloudflare API Token: " CF_TOKEN
-    echo -e "${GREEN}Using ACME (Let's Encrypt).${NC}"
 fi
 
-# ------------------------------------------------------------------
-# 6. Domain & ports (always needed)
-# ------------------------------------------------------------------
 read -p "Your domain (e.g., tunnel.example.com): " DOMAIN
-read -p "WebSocket HTTP ports (comma-separated, e.g., 8080,8081) [8080]: " WS_PORTS
+read -p "WebSocket HTTP ports (comma-separated) [8080]: " WS_PORTS
 WS_PORTS=${WS_PORTS:-8080}
-read -p "WebSocket HTTPS ports (comma-separated, e.g., 8443,8444) [8443]: " TLS_PORTS
+read -p "WebSocket HTTPS ports (comma-separated) [8443]: " TLS_PORTS
 TLS_PORTS=${TLS_PORTS:-8443}
 read -p "SSH host [127.0.0.1]: " SSH_HOST
 SSH_HOST=${SSH_HOST:-127.0.0.1}
 read -p "SSH port [22]: " SSH_PORT
 SSH_PORT=${SSH_PORT:-22}
 
-# ------------------------------------------------------------------
-# 7. Write .env
-# ------------------------------------------------------------------
 cat > .env <<EOF
 DOMAIN=${DOMAIN}
 EMAIL=${EMAIL}
@@ -116,43 +96,33 @@ EOF
 
 echo -e "${GREEN}Configuration saved to .env${NC}"
 
-# ------------------------------------------------------------------
-# 8. Configure iptables
-# ------------------------------------------------------------------
+# iptables
 echo -e "${YELLOW}Configuring iptables...${NC}"
 IFS=',' read -ra WS_ARRAY <<< "$WS_PORTS"
 IFS=',' read -ra TLS_ARRAY <<< "$TLS_PORTS"
-
 iptables -F
 iptables -X
 iptables -t nat -F
 iptables -t nat -X
 iptables -t mangle -F
 iptables -t mangle -X
-
 iptables -P INPUT DROP
 iptables -P FORWARD DROP
 iptables -P OUTPUT ACCEPT
-
 iptables -A INPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A FORWARD -m state --state ESTABLISHED,RELATED -j ACCEPT
 iptables -A INPUT -i lo -j ACCEPT
 iptables -A INPUT -p tcp --dport 22 -j ACCEPT
-
 for port in "${WS_ARRAY[@]}"; do
     iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
 done
 for port in "${TLS_ARRAY[@]}"; do
     iptables -A INPUT -p tcp --dport "$port" -j ACCEPT
 done
-
 iptables -A FORWARD -j ACCEPT
 netfilter-persistent save
 
-# ------------------------------------------------------------------
-# 9. Ensure SSH allows tunneling
-# ------------------------------------------------------------------
-echo -e "${YELLOW}Ensuring SSH allows tunneling...${NC}"
+# SSH
 if grep -q "^AllowTcpForwarding" /etc/ssh/sshd_config; then
     sed -i 's/^AllowTcpForwarding.*/AllowTcpForwarding yes/' /etc/ssh/sshd_config
 else
@@ -163,9 +133,7 @@ if ! grep -q "^GatewayPorts" /etc/ssh/sshd_config; then
 fi
 systemctl restart sshd
 
-# ------------------------------------------------------------------
-# 10. Setup systemd service
-# ------------------------------------------------------------------
+# Systemd service
 cat > /etc/systemd/system/ssh-ws-tunnel.service <<EOF
 [Unit]
 Description=SSH WebSocket Tunnel
@@ -187,15 +155,18 @@ systemctl daemon-reload
 systemctl enable ssh-ws-tunnel.service
 systemctl start ssh-ws-tunnel.service
 
-# ------------------------------------------------------------------
-# 11. Create kkmod command
-# ------------------------------------------------------------------
-ln -sf $(pwd)/scripts/kkmod /usr/local/bin/kkmod
-chmod +x /usr/local/bin/kkmod
+# Create kkmod symlink
+# First, ensure the script has the correct content
+mkdir -p scripts
+cat > scripts/kkmod << 'KKMOD'
+#!/bin/bash
+cd "$(dirname "$0")/.." || exit
+python3 -c "from src.dashboard import main; main()"
+KKMOD
 
-# ------------------------------------------------------------------
-# 12. Final message
-# ------------------------------------------------------------------
+chmod +x scripts/kkmod
+ln -sf $(pwd)/scripts/kkmod /usr/local/bin/kkmod
+
 echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN}Installation complete!${NC}"
 echo -e "Service status: ${YELLOW}systemctl status ssh-ws-tunnel${NC}"
