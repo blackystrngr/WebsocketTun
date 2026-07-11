@@ -13,28 +13,41 @@ async def run():
     config = load_config()
     setup_logging(config.get("debug", False))
 
-    cert_path = key_path = ca_path = None
+    cert_path = key_path = None
+    ssl_enabled = False
+
     if not config.get("no_cert", False):
         cert_mgr = CloudflareCertManager(
             domain=config["domain"],
-            email=config["email"],
+            email=config.get("email", ""),          # may be empty
             api_token=config["token"],
             cert_source=config.get("cert_source", "acme"),
             cert_file=config.get("cert_file"),
             key_file=config.get("key_file")
         )
-        if not cert_mgr.request_certificate():
-            print_error("Certificate issuance failed. Exiting.")
-            sys.exit(1)
-        cert_path, key_path, ca_path = cert_mgr.get_certificate_paths()
-        if not cert_path or not key_path:
-            print_error("Could not locate certificate files. Exiting.")
-            sys.exit(1)
-        # Validate the certificate (always do it)
-        if not cert_mgr.validate_certificate(cert_path, key_path, ca_path):
-            print_error("Certificate validation failed – but we'll continue anyway.")
+        if cert_mgr.request_certificate():
+            cert_path, key_path, ca_path = cert_mgr.get_certificate_paths()
+            if cert_path and key_path:
+                # Validate the certificate
+                if cert_mgr.validate_certificate(cert_path, key_path, ca_path):
+                    ssl_enabled = True
+                    print_success("SSL will be enabled with the valid certificate.")
+                else:
+                    print_error("Certificate validation failed – we will continue WITHOUT SSL.")
+                    ssl_enabled = False
+            else:
+                print_error("Could not locate certificate files – continuing WITHOUT SSL.")
+                ssl_enabled = False
         else:
-            print_success("Certificate is valid and trusted by CA.")
+            print_error("Certificate issuance failed – continuing WITHOUT SSL.")
+            ssl_enabled = False
+    else:
+        print_info("Certificate skipped (NO_CERT=true) – SSL disabled.")
+
+    # If SSL is not enabled, we force cert_path and key_path to None
+    if not ssl_enabled:
+        cert_path = key_path = None
+        print_info("WSS (TLS) will be disabled. Only plain WS will work.")
 
     proxy = SSHWebSocketProxy(
         ws_ports=config.get("ws_ports", [8080]),
