@@ -3,6 +3,26 @@ import yaml
 import logging
 import subprocess
 from dotenv import load_dotenv
+from colorama import init, Fore, Style
+
+init(autoreset=True)
+
+def color_text(text, color=Fore.WHITE, style=Style.NORMAL):
+    return f"{style}{color}{text}{Style.RESET_ALL}"
+
+def print_header(text):
+    print(Fore.CYAN + Style.BRIGHT + "=" * 50)
+    print(Fore.CYAN + Style.BRIGHT + f"  {text}")
+    print(Fore.CYAN + Style.BRIGHT + "=" * 50 + Style.RESET_ALL)
+
+def print_success(text):
+    print(Fore.GREEN + text)
+
+def print_error(text):
+    print(Fore.RED + text)
+
+def print_info(text):
+    print(Fore.YELLOW + text)
 
 def setup_logging(debug=False):
     level = logging.DEBUG if debug else logging.INFO
@@ -13,18 +33,14 @@ def setup_logging(debug=False):
     )
 
 def parse_port_list(value):
-    """Convert comma-separated string or int to list of ints."""
     if isinstance(value, list):
         return [int(p) for p in value]
     if isinstance(value, int):
         return [value]
     if isinstance(value, str):
-        # try as single int
         if ',' not in value:
             return [int(value)]
-        # split by comma
-        parts = [p.strip() for p in value.split(',') if p.strip()]
-        return [int(p) for p in parts]
+        return [int(p.strip()) for p in value.split(',') if p.strip()]
     return []
 
 def load_config():
@@ -45,7 +61,7 @@ def load_config():
         "no_cert": "NO_CERT",
         "debug": "DEBUG",
     }
-    # Also support old single-port names for backward compatibility
+    # backward compatibility
     if "WS_PORT" in os.environ and "WS_PORTS" not in os.environ:
         os.environ["WS_PORTS"] = os.environ["WS_PORT"]
     if "TLS_PORT" in os.environ and "TLS_PORTS" not in os.environ:
@@ -63,25 +79,17 @@ def load_config():
             else:
                 config[key] = val
 
-    # Ensure required
     required = ["domain", "email", "token"]
     for req in required:
         if req not in config:
-            raise ValueError(f"Missing required configuration: {req}")
+            raise ValueError(f"Missing required: {req}")
 
-    # Default ports if not set
-    if "ws_ports" not in config:
-        config["ws_ports"] = [8080]
-    if "tls_ports" not in config:
-        config["tls_ports"] = [8443]
-    if "ssh_host" not in config:
-        config["ssh_host"] = "127.0.0.1"
-    if "ssh_port" not in config:
-        config["ssh_port"] = 22
-
+    config.setdefault("ws_ports", [8080])
+    config.setdefault("tls_ports", [8443])
+    config.setdefault("ssh_host", "127.0.0.1")
+    config.setdefault("ssh_port", 22)
     return config
 
-# ... (ensure_acme_sh and run_command remain unchanged)
 def ensure_acme_sh(email):
     acme_path = "/root/.acme.sh/acme.sh"
     if os.path.exists(acme_path):
