@@ -1,5 +1,4 @@
 import subprocess
-import logging
 
 class ServiceManager:
     @staticmethod
