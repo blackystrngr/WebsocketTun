@@ -2,6 +2,7 @@ import asyncio
 import sys
 import logging
 from .service_manager import ServiceManager
+from .utils import print_success, print_error, print_info
 
 class ConsoleHandler:
     def __init__(self, shutdown_callback=None):
@@ -11,7 +12,7 @@ class ConsoleHandler:
 
     async def run(self):
         loop = asyncio.get_running_loop()
-        print("\nConsole ready. Type 'help' for commands.\n")
+        print_info("\nConsole ready. Type 'help' for commands.\n")
         while self.running:
             try:
                 line = await loop.run_in_executor(None, sys.stdin.readline)
@@ -27,22 +28,22 @@ class ConsoleHandler:
     async def process_command(self, cmd):
         if cmd == "status":
             status = ServiceManager.status()
-            print(f"Service status: {status}")
+            print_success(f"Service status: {status}")
         elif cmd == "restart":
             ServiceManager.restart()
-            print("Service restarted.")
+            print_success("Service restarted.")
         elif cmd == "stop":
             ServiceManager.stop()
-            print("Service stopped.")
+            print_info("Service stopped.")
         elif cmd == "logs":
             logs = ServiceManager.logs()
             print(logs)
         elif cmd == "exit" or cmd == "quit":
-            print("Shutting down...")
+            print_info("Shutting down...")
             if self.shutdown_callback:
                 await self.shutdown_callback()
             self.running = False
         elif cmd == "help":
-            print("Commands: status, restart, stop, logs, exit, help")
+            print_info("Commands: status, restart, stop, logs, exit, help")
         else:
-            print(f"Unknown command: {cmd}")
+            print_error(f"Unknown command: {cmd}")
