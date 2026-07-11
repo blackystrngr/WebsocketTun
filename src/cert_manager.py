@@ -9,14 +9,13 @@ class CloudflareCertManager:
         self.domain = domain
         self.email = email
         self.api_token = api_token
-        self.cert_source = cert_source  # 'cloudflare' or 'acme'
+        self.cert_source = cert_source
         self.cert_file = cert_file
         self.key_file = key_file
         self.le_dir = Path(f"/etc/letsencrypt/live/{domain}")
         self.logger = logging.getLogger(self.__class__.__name__)
 
     def _install_certbot(self):
-        """Install certbot and Cloudflare DNS plugin."""
         utils.print_info("Installing certbot and Cloudflare DNS plugin...")
         try:
             subprocess.run(
@@ -30,7 +29,6 @@ class CloudflareCertManager:
             return False
 
     def _create_cloudflare_credentials(self):
-        """Write Cloudflare API token to a temporary file for certbot."""
         cred_path = "/root/.cloudflare.ini"
         with open(cred_path, "w") as f:
             f.write(f"dns_cloudflare_api_token = {self.api_token}")
@@ -39,7 +37,6 @@ class CloudflareCertManager:
 
     def request_certificate(self):
         if self.cert_source == "cloudflare":
-            utils.print_info("Using Cloudflare Origin Certificate – no issuance needed.")
             if not self.cert_file or not self.key_file:
                 utils.print_error("Cloudflare cert/key paths not set.")
                 return False
@@ -49,20 +46,24 @@ class CloudflareCertManager:
             utils.print_success("Cloudflare certificate files found.")
             return True
         else:
-            # ACME via certbot
-            utils.print_info(f"Requesting SSL certificate for {self.domain} via Certbot + Cloudflare DNS...")
+            utils.print_info(f"Requesting SSL certificate for {self.domain} via Certbot...")
             if not self._install_certbot():
                 return False
             cred_file = self._create_cloudflare_credentials()
+            # Handle missing email
+            if self.email and self.email.strip():
+                email_arg = f"--email {self.email}"
+            else:
+                email_arg = "--register-unsafely-without-email"
             cmd = (
                 f"certbot certonly --dns-cloudflare --dns-cloudflare-credentials {cred_file} "
-                f"-d {self.domain} --non-interactive --agree-tos --email {self.email} --expand"
+                f"-d {self.domain} --non-interactive --agree-tos {email_arg} --expand"
             )
             if utils.run_command(cmd):
-                utils.print_success("Certificate issued successfully via Certbot.")
+                utils.print_success("Certificate issued via Certbot.")
                 return True
             else:
-                utils.print_error("Certbot certificate issuance failed.")
+                utils.print_error("Certbot issuance failed.")
                 return False
 
     def validate_certificate(self, cert_path, key_path, ca_path=None):
