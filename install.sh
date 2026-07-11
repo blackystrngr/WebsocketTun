@@ -16,9 +16,9 @@ if [ "$EUID" -ne 0 ]; then
     exit 1
 fi
 
-# System packages
+# Install system packages (including certbot)
 apt update
-apt install -y python3 python3-pip curl git openssl iptables iptables-persistent
+apt install -y python3 python3-pip curl git openssl iptables iptables-persistent certbot python3-certbot-dns-cloudflare
 
 # Disable IPv6
 echo -e "${YELLOW}Disabling IPv6...${NC}"
@@ -36,11 +36,9 @@ GRUB_CMDLINE_LINUX="ipv6.disable=1"
 EOF
 update-grub
 
-# IP forwarding
 sysctl -w net.ipv4.ip_forward=1
 echo "net.ipv4.ip_forward = 1" >> /etc/sysctl.conf
 
-# Python deps
 pip3 install -r requirements.txt
 
 # Certificate source
@@ -155,15 +153,14 @@ systemctl daemon-reload
 systemctl enable ssh-ws-tunnel.service
 systemctl start ssh-ws-tunnel.service
 
-# Create kkmod symlink
-# First, ensure the script has the correct content
+# Create kkmod with proper path resolution
 mkdir -p scripts
 cat > scripts/kkmod << 'KKMOD'
 #!/bin/bash
-cd "$(dirname "$0")/.." || exit
+SCRIPT_PATH="$(readlink -f "$0")"
+cd "$(dirname "$SCRIPT_PATH")/.." || exit
 python3 -c "from src.dashboard import main; main()"
 KKMOD
-
 chmod +x scripts/kkmod
 ln -sf $(pwd)/scripts/kkmod /usr/local/bin/kkmod
 
