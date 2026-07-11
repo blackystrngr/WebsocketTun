@@ -4,9 +4,9 @@ import ssl
 from websockets.server import serve
 
 class SSHWebSocketProxy:
-    def __init__(self, ws_port, tls_port, ssh_host, ssh_port, ssl_cert=None, ssl_key=None):
-        self.ws_port = ws_port
-        self.tls_port = tls_port
+    def __init__(self, ws_ports, tls_ports, ssh_host, ssh_port, ssl_cert=None, ssl_key=None):
+        self.ws_ports = ws_ports if isinstance(ws_ports, list) else [ws_ports]
+        self.tls_ports = tls_ports if isinstance(tls_ports, list) else [tls_ports]
         self.ssh_host = ssh_host
         self.ssh_port = ssh_port
         self.ssl_cert = ssl_cert
@@ -47,18 +47,29 @@ class SSHWebSocketProxy:
             self.logger.info("Connection closed")
 
     async def start(self):
-        ws_server = serve(self._handle_connection, "0.0.0.0", self.ws_port)
-        wss_server = None
+        servers = []
+        # Start plain WS servers
+        for port in self.ws_ports:
+            server = serve(self._handle_connection, "0.0.0.0", port)
+            servers.append(server)
+            self.logger.info(f"WS server listening on port {port}")
+
+        # Start WSS servers if certs provided
         if self.ssl_cert and self.ssl_key:
             try:
                 ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
                 ssl_context.load_cert_chain(self.ssl_cert, self.ssl_key)
-                wss_server = serve(self._handle_connection, "0.0.0.0", self.tls_port, ssl=ssl_context)
-                self.logger.info(f"WSS on port {self.tls_port}")
+                for port in self.tls_ports:
+                    server = serve(self._handle_connection, "0.0.0.0", port, ssl=ssl_context)
+                    servers.append(server)
+                    self.logger.info(f"WSS server listening on port {port}")
             except Exception as e:
-                self.logger.error(f"WSS failed: {e}")
-        self.logger.info(f"WS on port {self.ws_port}")
-        servers = [ws_server]
-        if wss_server:
-            servers.append(wss_server)
+                self.logger.error(f"SSL setup failed: {e}")
+        else:
+            self.logger.info("SSL certs not provided; WSS disabled.")
+
+        if not servers:
+            self.logger.error("No servers to start!")
+            return
+
         await asyncio.gather(*servers)
