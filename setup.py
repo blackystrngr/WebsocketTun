@@ -9,12 +9,9 @@ setup(
         "websockets>=10.4",
         "pyyaml>=6.0",
         "python-dotenv>=0.21.0",
+        "colorama>=0.4.6",
     ],
-    entry_points={
-        "console_scripts": [
-            "ssh-ws-tunnel=src.main:main",
-        ],
-    },
+    entry_points={"console_scripts": ["ssh-ws-tunnel=src.main:main"]},
     author="Your Name",
     description="SSH over WebSocket proxy with Cloudflare SSL and auto-update",
     python_requires=">=3.8",
