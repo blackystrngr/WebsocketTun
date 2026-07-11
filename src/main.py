@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 import asyncio
 import sys
+import os
 from .cli import CLIHandler
 from .cert_manager import CloudflareCertManager
 from .proxy_server import SSHWebSocketProxy
 from .utils import setup_logging, load_config
 from .auto_updater import GitAutoUpdater
+from .console import ConsoleHandler
 
 async def run():
     config = load_config()
@@ -37,16 +39,42 @@ async def run():
 
     # Start auto-updater (if git repo exists)
     updater = GitAutoUpdater(interval=30)
+    
+    # Create tasks
     proxy_task = asyncio.create_task(proxy.start())
     updater_task = asyncio.create_task(updater.run())
 
+    # Console handler – only if stdin is a TTY (i.e., not running as a service)
+    console_task = None
+    if sys.stdin.isatty():
+        # Shutdown callback to cancel everything
+        async def shutdown():
+            proxy_task.cancel()
+            updater_task.cancel()
+            console_task.cancel()  # not needed but safe
+        console = ConsoleHandler(shutdown_callback=shutdown)
+        console_task = asyncio.create_task(console.run())
+    else:
+        print("No TTY detected – console disabled. (Running as service?)")
+
     try:
-        await asyncio.gather(proxy_task, updater_task)
+        # Wait for all tasks; if one fails, we'll cancel others
+        tasks = [proxy_task, updater_task]
+        if console_task:
+            tasks.append(console_task)
+        await asyncio.gather(*tasks, return_exceptions=True)
+    except asyncio.CancelledError:
+        pass
     except KeyboardInterrupt:
-        print("\nShutting down...")
-    except Exception as e:
-        print(f"Fatal error: {e}")
-        sys.exit(1)
+        print("\nInterrupted. Shutting down...")
+    finally:
+        # Cancel any remaining tasks
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        # Wait for cancellation to complete
+        await asyncio.gather(*tasks, return_exceptions=True)
+        print("Goodbye.")
 
 def main():
     asyncio.run(run())
