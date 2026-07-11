@@ -1,0 +1,9 @@
+domain: your-domain.com
+email: your-email@example.com
+cf_api_token: your_cloudflare_api_token
+ws_ports: [8080, 8081, 8082]
+tls_ports: [8443, 8444, 8445]
+ssh_host: 127.0.0.1
+ssh_port: 22
+no_cert: false
+debug: false
