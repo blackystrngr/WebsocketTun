@@ -60,6 +60,9 @@ def load_config():
         "ssh_port": "SSH_PORT",
         "no_cert": "NO_CERT",
         "debug": "DEBUG",
+        "cert_source": "CERT_SOURCE",
+        "cert_file": "CERT_FILE",
+        "key_file": "KEY_FILE",
     }
     # backward compatibility
     if "WS_PORT" in os.environ and "WS_PORTS" not in os.environ:
@@ -88,6 +91,7 @@ def load_config():
     config.setdefault("tls_ports", [8443])
     config.setdefault("ssh_host", "127.0.0.1")
     config.setdefault("ssh_port", 22)
+    config.setdefault("cert_source", "acme")  # default to acme
     return config
 
 def ensure_acme_sh(email):
