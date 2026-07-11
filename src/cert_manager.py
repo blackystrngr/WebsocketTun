@@ -98,7 +98,6 @@ class CloudflareCertManager:
                 return self.cert_file, self.key_file, None
             return None, None, None
         else:
-            # Certbot/Let's Encrypt
             cert = self.le_dir / "fullchain.pem"
             key = self.le_dir / "privkey.pem"
             if cert.exists() and key.exists():
