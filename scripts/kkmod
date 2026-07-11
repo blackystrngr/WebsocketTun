@@ -1,4 +1,4 @@
 #!/bin/bash
-# kkmod – dashboard launcher
+# Dashboard launcher – ensures we're in the project root
 cd "$(dirname "$0")/.." || exit
 python3 -c "from src.dashboard import main; main()"
