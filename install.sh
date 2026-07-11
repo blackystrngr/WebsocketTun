@@ -17,13 +17,37 @@ apt install -y python3 python3-pip curl git
 # Install Python dependencies
 pip3 install -r requirements.txt
 
-# Create config if missing
-if [ ! -f .env ] && [ ! -f config.yaml ]; then
-    cp .env.example .env
-    echo "Please edit .env with your domain, email, and Cloudflare API token."
-    echo "Then run the installer again or start manually."
-    exit 1
-fi
+# --- Interactive configuration ---
+echo ""
+echo "Please provide the following configuration:"
+
+read -p "Your domain (e.g., tunnel.example.com): " DOMAIN
+read -p "Your Cloudflare account email: " EMAIL
+read -p "Your Cloudflare API Token: " CF_TOKEN
+read -p "WebSocket HTTP port [8080]: " WS_PORT
+WS_PORT=${WS_PORT:-8080}
+read -p "WebSocket HTTPS port [8443]: " TLS_PORT
+TLS_PORT=${TLS_PORT:-8443}
+read -p "SSH host [127.0.0.1]: " SSH_HOST
+SSH_HOST=${SSH_HOST:-127.0.0.1}
+read -p "SSH port [22]: " SSH_PORT
+SSH_PORT=${SSH_PORT:-22}
+
+# Write .env file
+cat > .env <<EOF
+DOMAIN=${DOMAIN}
+EMAIL=${EMAIL}
+CF_API_TOKEN=${CF_TOKEN}
+WS_PORT=${WS_PORT}
+TLS_PORT=${TLS_PORT}
+SSH_HOST=${SSH_HOST}
+SSH_PORT=${SSH_PORT}
+NO_CERT=false
+DEBUG=false
+EOF
+
+echo ""
+echo "Configuration saved to .env"
 
 # Install as a systemd service
 cat > /etc/systemd/system/ssh-ws-tunnel.service <<EOF
