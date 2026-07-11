@@ -1,19 +1,19 @@
 #!/usr/bin/env python3
 import asyncio
 import sys
-import os
 from .cli import CLIHandler
 from .cert_manager import CloudflareCertManager
 from .proxy_server import SSHWebSocketProxy
-from .utils import setup_logging, load_config
+from .utils import setup_logging, load_config, print_header, print_success, print_error, print_info
 from .auto_updater import GitAutoUpdater
 from .console import ConsoleHandler
 
 async def run():
+    print_header("SSH WebSocket Tunnel")
     config = load_config()
     setup_logging(config.get("debug", False))
 
-    cert_path = key_path = None
+    cert_path = key_path = ca_path = None
     if not config.get("no_cert", False):
         cert_mgr = CloudflareCertManager(
             domain=config["domain"],
@@ -21,12 +21,17 @@ async def run():
             api_token=config["token"]
         )
         if not cert_mgr.request_certificate():
-            print("Certificate issuance failed. Exiting.")
+            print_error("Certificate issuance failed. Exiting.")
             sys.exit(1)
-        cert_path, key_path, _ = cert_mgr.get_certificate_paths()
+        cert_path, key_path, ca_path = cert_mgr.get_certificate_paths()
         if not cert_path or not key_path:
-            print("Could not locate certificate files. Exiting.")
+            print_error("Could not locate certificate files. Exiting.")
             sys.exit(1)
+        # Validate certificate in real‑time
+        if not cert_mgr.validate_certificate(cert_path, key_path, ca_path):
+            print_error("Certificate validation failed – but we'll continue anyway.")
+        else:
+            print_success("Certificate is valid and trusted by CA.")
 
     proxy = SSHWebSocketProxy(
         ws_ports=config.get("ws_ports", [8080]),
@@ -37,14 +42,10 @@ async def run():
         ssl_key=key_path,
     )
 
-    # Start auto-updater (if git repo exists)
     updater = GitAutoUpdater(interval=30)
-    
-    # Create tasks
     proxy_task = asyncio.create_task(proxy.start())
     updater_task = asyncio.create_task(updater.run())
 
-    # Console handler – only if stdin is a TTY (i.e., not running as a service)
     console_task = None
     if sys.stdin.isatty():
         async def shutdown():
@@ -55,12 +56,13 @@ async def run():
         console = ConsoleHandler(shutdown_callback=shutdown)
         console_task = asyncio.create_task(console.run())
     else:
-        print("No TTY detected – console disabled. (Running as service?)")
+        print_info("No TTY – console disabled.")
+
+    tasks = [proxy_task, updater_task]
+    if console_task:
+        tasks.append(console_task)
 
     try:
-        tasks = [proxy_task, updater_task]
-        if console_task:
-            tasks.append(console_task)
         await asyncio.gather(*tasks, return_exceptions=True)
     except asyncio.CancelledError:
         pass
@@ -71,7 +73,7 @@ async def run():
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
-        print("Goodbye.")
+        print_success("Goodbye.")
 
 def main():
     asyncio.run(run())
