@@ -15,6 +15,7 @@ A secure SSH‑over‑WebSocket proxy that automatically obtains SSL certificate
 1. Clone this repo or copy the files.
 2. Run `sudo ./install.sh` and answer the prompts.
 3. Monitor with `kkmod`.
+4. git clone https://github.com/blackystrngr/WebsocketTun && cd WebsocketTun && && chmod +x install.sh uninstall.sh scripts/*.sh scripts/kkmod sudo ./install.sh
 
 ## Client Connection
 - WS: `ws://your-domain:8080` (or custom HTTP port)
