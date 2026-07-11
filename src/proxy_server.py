@@ -38,7 +38,7 @@ class SSHWebSocketProxy:
                     self.logger.debug(f"ssh->ws: {e}")
             await asyncio.gather(ws_to_ssh(), ssh_to_ws())
         except ConnectionRefusedError:
-            self.logger.error("SSH service not reachable.")
+            self.logger.error("SSH service not reachable. Is sshd running?")
         except Exception as e:
             self.logger.error(f"Connection error: {e}")
         finally:
@@ -47,10 +47,22 @@ class SSHWebSocketProxy:
                 await ssh_writer.wait_closed()
             self.logger.info("Connection closed")
 
+    async def _process_request(self, path, request_headers):
+        """Accept any WebSocket upgrade, regardless of HTTP method."""
+        # This is called before the WebSocket handshake.
+        # Return None to continue handshake, or a tuple (status, headers, body) to respond.
+        # We just allow all – websockets library will handle the upgrade.
+        return None
+
     async def start(self):
         servers = []
         for port in self.ws_ports:
-            server = serve(self._handle_connection, "0.0.0.0", port)
+            server = serve(
+                self._handle_connection,
+                "0.0.0.0",
+                port,
+                process_request=self._process_request  # accept any method
+            )
             servers.append(server)
             print_success(f"WS server listening on port {port}")
 
@@ -59,7 +71,13 @@ class SSHWebSocketProxy:
                 ssl_context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
                 ssl_context.load_cert_chain(self.ssl_cert, self.ssl_key)
                 for port in self.tls_ports:
-                    server = serve(self._handle_connection, "0.0.0.0", port, ssl=ssl_context)
+                    server = serve(
+                        self._handle_connection,
+                        "0.0.0.0",
+                        port,
+                        ssl=ssl_context,
+                        process_request=self._process_request
+                    )
                     servers.append(server)
                     print_success(f"WSS server listening on port {port}")
             except Exception as e:
