@@ -1,6 +1,7 @@
 import os
 import logging
 import subprocess
+import time
 from pathlib import Path
 from . import utils
 
@@ -12,31 +13,40 @@ class CloudflareCertManager:
         self.cert_source = cert_source
         self.cert_file = cert_file
         self.key_file = key_file
-        self.le_dir = Path(f"/etc/letsencrypt/live/{domain}")
+        self.acme_home = "/root/.acme.sh"
+        self.acme_script = f"{self.acme_home}/acme.sh"
+        self.le_dir = Path(f"/root/.acme.sh/{domain}")
         self.logger = logging.getLogger(self.__class__.__name__)
 
-    def _install_certbot(self):
-        utils.print_info("Installing certbot and Cloudflare DNS plugin...")
+    def _install_acme_sh(self):
+        """Install acme.sh using the official install script (bash)."""
+        utils.print_info("Installing acme.sh...")
         try:
+            # Use the official install script, pipe to bash
+            cmd = 'curl -s https://get.acme.sh | sh -s email={}'.format(self.email if self.email else "")
+            # We'll run it with bash explicitly
             subprocess.run(
-                "apt update && apt install -y certbot python3-certbot-dns-cloudflare",
-                shell=True, check=True, executable="/bin/bash"
+                cmd,
+                shell=True,
+                check=True,
+                executable="/bin/bash",
+                env={**os.environ, "CF_Token": self.api_token}
             )
-            utils.print_success("Certbot installed.")
+            utils.print_success("acme.sh installed.")
             return True
         except subprocess.CalledProcessError as e:
-            utils.print_error(f"Certbot install failed: {e}")
+            utils.print_error(f"acme.sh install failed: {e}")
             return False
 
-    def _create_cloudflare_credentials(self):
-        cred_path = "/root/.cloudflare.ini"
-        with open(cred_path, "w") as f:
-            f.write(f"dns_cloudflare_api_token = {self.api_token}")
-        os.chmod(cred_path, 0o600)
-        return cred_path
+    def _ensure_acme_sh(self):
+        """Ensure acme.sh is installed and available."""
+        if os.path.exists(self.acme_script):
+            return True
+        return self._install_acme_sh()
 
     def request_certificate(self):
         if self.cert_source == "cloudflare":
+            # Cloudflare Origin Certificate
             if not self.cert_file or not self.key_file:
                 utils.print_error("Cloudflare cert/key paths not set.")
                 return False
@@ -46,24 +56,54 @@ class CloudflareCertManager:
             utils.print_success("Cloudflare certificate files found.")
             return True
         else:
-            utils.print_info(f"Requesting SSL certificate for {self.domain} via Certbot...")
-            if not self._install_certbot():
+            # ACME via acme.sh
+            if not self._ensure_acme_sh():
                 return False
-            cred_file = self._create_cloudflare_credentials()
-            # Handle missing email
+
+            # Set Cloudflare token in environment
+            os.environ["CF_Token"] = self.api_token
+
+            # Build the acme.sh command
+            cmd = [
+                self.acme_script,
+                "--issue",
+                "-d", self.domain,
+                "--dns", "dns_cf",
+                "--force"  # Force renew even if existing
+            ]
             if self.email and self.email.strip():
-                email_arg = f"--email {self.email}"
+                cmd.extend(["--accountemail", self.email])
             else:
-                email_arg = "--register-unsafely-without-email"
-            cmd = (
-                f"certbot certonly --dns-cloudflare --dns-cloudflare-credentials {cred_file} "
-                f"-d {self.domain} --non-interactive --agree-tos {email_arg} --expand"
-            )
-            if utils.run_command(cmd):
-                utils.print_success("Certificate issued via Certbot.")
+                # acme.sh can register without email using --register-unsafely-without-email
+                # It's a flag for the '--register-account' step; but we can add it to the issue command.
+                # Better: we run an explicit account registration first.
+                # But acme.sh will auto-register if no account exists. Without email, it will prompt.
+                # To avoid prompt, we can use --register-unsafely-without-email.
+                # We'll run a separate registration command.
+                reg_cmd = [
+                    self.acme_script,
+                    "--register-account",
+                    "--register-unsafely-without-email",
+                    "--force"
+                ]
+                utils.print_info("Registering acme.sh account without email.")
+                try:
+                    subprocess.run(reg_cmd, check=True, executable="/bin/bash")
+                except subprocess.CalledProcessError as e:
+                    utils.print_error(f"Account registration failed: {e}")
+                    return False
+
+            # Add -k to set key length? Not needed; we use default EC-256.
+
+            # Issue the certificate
+            utils.print_info(f"Issuing certificate for {self.domain} via acme.sh...")
+            try:
+                # Run with bash
+                subprocess.run(cmd, check=True, executable="/bin/bash")
+                utils.print_success("Certificate issued via acme.sh.")
                 return True
-            else:
-                utils.print_error("Certbot issuance failed.")
+            except subprocess.CalledProcessError as e:
+                utils.print_error(f"acme.sh issuance failed: {e}")
                 return False
 
     def validate_certificate(self, cert_path, key_path, ca_path=None):
@@ -98,9 +138,11 @@ class CloudflareCertManager:
                 return self.cert_file, self.key_file, None
             return None, None, None
         else:
-            cert = self.le_dir / "fullchain.pem"
-            key = self.le_dir / "privkey.pem"
+            # acme.sh stores certs in ~/.acme.sh/<domain>/
+            cert = self.le_dir / f"{self.domain}.cer"
+            key = self.le_dir / f"{self.domain}.key"
+            ca = self.le_dir / "ca.cer"
             if cert.exists() and key.exists():
-                return str(cert), str(key), None
-            self.logger.error("No certificate found in Let's Encrypt directory.")
+                return str(cert), str(key), str(ca) if ca.exists() else None
+            self.logger.error("No certificate found in acme.sh directory.")
             return None, None, None
