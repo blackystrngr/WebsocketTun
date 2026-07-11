@@ -12,13 +12,34 @@ class CloudflareCertManager:
         self.cert_source = cert_source  # 'cloudflare' or 'acme'
         self.cert_file = cert_file
         self.key_file = key_file
-        self.cert_dir = Path(f"/root/.acme.sh/{domain}")
+        self.le_dir = Path(f"/etc/letsencrypt/live/{domain}")
         self.logger = logging.getLogger(self.__class__.__name__)
+
+    def _install_certbot(self):
+        """Install certbot and Cloudflare DNS plugin."""
+        utils.print_info("Installing certbot and Cloudflare DNS plugin...")
+        try:
+            subprocess.run(
+                "apt update && apt install -y certbot python3-certbot-dns-cloudflare",
+                shell=True, check=True, executable="/bin/bash"
+            )
+            utils.print_success("Certbot installed.")
+            return True
+        except subprocess.CalledProcessError as e:
+            utils.print_error(f"Certbot install failed: {e}")
+            return False
+
+    def _create_cloudflare_credentials(self):
+        """Write Cloudflare API token to a temporary file for certbot."""
+        cred_path = "/root/.cloudflare.ini"
+        with open(cred_path, "w") as f:
+            f.write(f"dns_cloudflare_api_token = {self.api_token}")
+        os.chmod(cred_path, 0o600)
+        return cred_path
 
     def request_certificate(self):
         if self.cert_source == "cloudflare":
             utils.print_info("Using Cloudflare Origin Certificate – no issuance needed.")
-            # Just verify files exist
             if not self.cert_file or not self.key_file:
                 utils.print_error("Cloudflare cert/key paths not set.")
                 return False
@@ -28,22 +49,23 @@ class CloudflareCertManager:
             utils.print_success("Cloudflare certificate files found.")
             return True
         else:
-            # ACME (Let's Encrypt)
-            utils.print_info(f"Requesting SSL certificate for {self.domain} via ACME...")
-            if not utils.ensure_acme_sh(self.email):
+            # ACME via certbot
+            utils.print_info(f"Requesting SSL certificate for {self.domain} via Certbot + Cloudflare DNS...")
+            if not self._install_certbot():
                 return False
-            os.environ["CF_Token"] = self.api_token
-            if not utils.run_command("export CF_Token"):
-                return False
-            acme_sh = "/root/.acme.sh/acme.sh"
-            cmd = f'{acme_sh} --issue -d {self.domain} --dns dns_cf --force'
+            cred_file = self._create_cloudflare_credentials()
+            cmd = (
+                f"certbot certonly --dns-cloudflare --dns-cloudflare-credentials {cred_file} "
+                f"-d {self.domain} --non-interactive --agree-tos --email {self.email} --expand"
+            )
             if utils.run_command(cmd):
-                utils.print_success("Certificate issued successfully.")
+                utils.print_success("Certificate issued successfully via Certbot.")
                 return True
-            return False
+            else:
+                utils.print_error("Certbot certificate issuance failed.")
+                return False
 
     def validate_certificate(self, cert_path, key_path, ca_path=None):
-        """Validate certificate using openssl verify."""
         if not cert_path or not os.path.exists(cert_path):
             utils.print_error("Certificate file not found for validation.")
             return False
@@ -71,22 +93,14 @@ class CloudflareCertManager:
 
     def get_certificate_paths(self):
         if self.cert_source == "cloudflare":
-            # Use the provided files
             if self.cert_file and self.key_file:
                 return self.cert_file, self.key_file, None
             return None, None, None
         else:
-            # ACME: look in acme.sh directory
-            cert = self.cert_dir / f"{self.domain}.cer"
-            key = self.cert_dir / f"{self.domain}.key"
-            ca = self.cert_dir / "ca.cer"
+            # Certbot/Let's Encrypt
+            cert = self.le_dir / "fullchain.pem"
+            key = self.le_dir / "privkey.pem"
             if cert.exists() and key.exists():
-                return str(cert), str(key), str(ca) if ca.exists() else None
-            # fallback Let's Encrypt
-            le_dir = Path("/etc/letsencrypt/live") / self.domain
-            le_cert = le_dir / "fullchain.pem"
-            le_key = le_dir / "privkey.pem"
-            if le_cert.exists() and le_key.exists():
-                return str(le_cert), str(le_key), None
-            self.logger.error("No certificate found.")
+                return str(cert), str(key), None
+            self.logger.error("No certificate found in Let's Encrypt directory.")
             return None, None, None
