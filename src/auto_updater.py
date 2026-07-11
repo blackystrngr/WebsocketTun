@@ -1,8 +1,8 @@
 import asyncio
 import logging
 import subprocess
-import os
 from pathlib import Path
+from .utils import print_success, print_info, print_error
 
 class GitAutoUpdater:
     def __init__(self, repo_path=".", interval=30):
@@ -24,28 +24,26 @@ class GitAutoUpdater:
     def _git_pull(self):
         try:
             subprocess.run(["git", "-C", str(self.repo_path), "pull"], check=True)
-            self.logger.info("Git pull successful.")
+            print_success("Git pull successful.")
             return True
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Git pull failed: {e}")
+            print_error(f"Git pull failed: {e}")
             return False
 
     def _restart_service(self):
         try:
             subprocess.run(["systemctl", "restart", "ssh-ws-tunnel"], check=True)
-            self.logger.info("Service restarted after update.")
+            print_success("Service restarted after update.")
         except subprocess.CalledProcessError as e:
-            self.logger.error(f"Service restart failed: {e}")
+            print_error(f"Service restart failed: {e}")
 
     async def run(self):
-        self.logger.info(f"Auto‑updater started, interval={self.interval}s")
+        print_info(f"Auto‑updater started (interval {self.interval}s)")
         while True:
             await asyncio.sleep(self.interval)
             current = self._get_current_commit()
             if current and current != self.last_commit:
-                self.logger.info(f"New commit detected: {current[:8]} (was {self.last_commit[:8]})")
+                print_info(f"New commit detected: {current[:8]} (was {self.last_commit[:8]})")
                 if self._git_pull():
                     self._restart_service()
                     self.last_commit = current
-                else:
-                    self.logger.warning("Pull failed, skipping restart.")
