@@ -24,10 +24,10 @@ echo "Please provide the following configuration:"
 read -p "Your domain (e.g., tunnel.example.com): " DOMAIN
 read -p "Your Cloudflare account email: " EMAIL
 read -p "Your Cloudflare API Token: " CF_TOKEN
-read -p "WebSocket HTTP port [8080]: " WS_PORT
-WS_PORT=${WS_PORT:-8080}
-read -p "WebSocket HTTPS port [8443]: " TLS_PORT
-TLS_PORT=${TLS_PORT:-8443}
+read -p "WebSocket HTTP ports (comma-separated, e.g., 8080,8081) [8080]: " WS_PORTS
+WS_PORTS=${WS_PORTS:-8080}
+read -p "WebSocket HTTPS ports (comma-separated, e.g., 8443,8444) [8443]: " TLS_PORTS
+TLS_PORTS=${TLS_PORTS:-8443}
 read -p "SSH host [127.0.0.1]: " SSH_HOST
 SSH_HOST=${SSH_HOST:-127.0.0.1}
 read -p "SSH port [22]: " SSH_PORT
@@ -38,8 +38,8 @@ cat > .env <<EOF
 DOMAIN=${DOMAIN}
 EMAIL=${EMAIL}
 CF_API_TOKEN=${CF_TOKEN}
-WS_PORT=${WS_PORT}
-TLS_PORT=${TLS_PORT}
+WS_PORTS=${WS_PORTS}
+TLS_PORTS=${TLS_PORTS}
 SSH_HOST=${SSH_HOST}
 SSH_PORT=${SSH_PORT}
 NO_CERT=false
