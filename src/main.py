@@ -18,7 +18,10 @@ async def run():
         cert_mgr = CloudflareCertManager(
             domain=config["domain"],
             email=config["email"],
-            api_token=config["token"]
+            api_token=config["token"],
+            cert_source=config.get("cert_source", "acme"),
+            cert_file=config.get("cert_file"),
+            key_file=config.get("key_file")
         )
         if not cert_mgr.request_certificate():
             print_error("Certificate issuance failed. Exiting.")
@@ -27,7 +30,7 @@ async def run():
         if not cert_path or not key_path:
             print_error("Could not locate certificate files. Exiting.")
             sys.exit(1)
-        # Validate certificate in real‑time
+        # Validate the certificate (always do it)
         if not cert_mgr.validate_certificate(cert_path, key_path, ca_path):
             print_error("Certificate validation failed – but we'll continue anyway.")
         else:
